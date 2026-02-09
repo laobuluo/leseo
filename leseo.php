@@ -3,7 +3,7 @@
 Plugin Name: LeSeo
 Plugin URI: https://www.lezaiyun.com/817.html
 Description: LeSeo，一个比较全面、免费的WordPress SEO插件。公众号：老蒋朋友圈。
-Version: 1.2.4
+Version: 1.2.6
 Author: 老蒋和他的伙伴们
 Author URI: https://www.lezaiyun.com
 Requires PHP: 7.0
@@ -32,12 +32,12 @@ if (!class_exists('LESEO')) {
 		 * 一个关键字少于多少不替换;
 		 * @var int
 		 */
-		private $match_num_from = 3;
+		private $match_num_from = 2;
 		/**
 		 * 一个关键字最多替换
 		 * @var int
 		 */
-		private $match_num_to   = 2;
+		private $match_num_to   = 3;
 
         private $s3_object      = null;
         /**
@@ -259,12 +259,20 @@ if (!class_exists('LESEO')) {
 			}
 
 			// TDK SEO
+			$custom_index_title = trim( $this->options['leseo-selfindextitle'] ?? '' );
+			$has_custom_home_title = ! empty( $custom_index_title );
 			if ( isset($this->options['leseo-selfseotdk']) && $this->options['leseo-selfseotdk'] ) {
 				add_action( 'wp_head', array($this, 'leseo_seo'), 1 );
-				add_filter( 'pre_get_document_title', array($this, 'leseo_pre_get_document_title') );
+				add_filter( 'pre_get_document_title', array($this, 'leseo_pre_get_document_title'), PHP_INT_MAX );
+				if ( $has_custom_home_title ) {
+					add_filter( 'document_title', array($this, 'leseo_document_title_home_override'), PHP_INT_MAX );
+				}
 				if (isset($this->options['leseo-linkmark']) && $this->options['leseo-linkmark']) {
 					add_filter('document_title_separator', array($this, 'leseo_document_title_separator'));
 				}
+			} elseif ( $has_custom_home_title ) {
+				add_filter( 'pre_get_document_title', array($this, 'leseo_pre_get_document_title'), PHP_INT_MAX );
+				add_filter( 'document_title', array($this, 'leseo_document_title_home_override'), PHP_INT_MAX );
 			}
 
 			// 网站地图
@@ -293,26 +301,24 @@ if (!class_exists('LESEO')) {
 				add_action( 'save_post', array($this, 'leseo_save_baidu_submitter_post_data') );
 			}
 
-			// 页头页尾CSS代码插入（附加功能）
+			// 页头页尾CSS代码插入（附加功能，仅管理员可设置）
 			if ( ! empty($this->options['leseo-code-header']) ) {
-				// 头部JS
-				$leseo_customize_code_header = $this->options['leseo-code-header'];
+				$leseo_customize_code_header = wp_unslash( $this->options['leseo-code-header'] );
 				add_action('wp_head', function () use ($leseo_customize_code_header) {
-					echo sanitize_text_field($leseo_customize_code_header);
+					echo $leseo_customize_code_header; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- 管理员自定义代码
 				});
 			}
 			if ( ! empty($this->options['leseo-code-footer']) ) {
-				// 底部JS
-				$leseo_customize_code_footer = $this->options['leseo-code-footer'];
+				$leseo_customize_code_footer = wp_unslash( $this->options['leseo-code-footer'] );
 				add_action('wp_footer', function () use ($leseo_customize_code_footer) {
-					echo sanitize_text_field($leseo_customize_code_footer);
+					echo $leseo_customize_code_footer; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- 管理员自定义代码
 				});
 			}
 			if ( ! empty($this->options['leseo-code-cssjs']) ) {
-				// 自定义CSS
-				$leseo_customize_code_cssjs = $this->options['leseo-code-cssjs'];
+				$leseo_customize_code_cssjs = wp_unslash( $this->options['leseo-code-cssjs'] );
 				add_action('wp_head', function () use ($leseo_customize_code_cssjs) {
-					echo '<style>' . sanitize_text_field($leseo_customize_code_cssjs) . '</style>';
+					$css = str_replace( array( '</style>', '</script>' ), '', $leseo_customize_code_cssjs );
+					echo '<style>' . esc_html( $css ) . '</style>';
 				});
 			}
 
@@ -343,14 +349,23 @@ if (!class_exists('LESEO')) {
 		}
 
 
+		/**
+		 * 百度推送定时任务回调（预留）
+		 */
+		public function bs_cron_event() {
+			// 预留扩展：批量推送等定时任务
+		}
+
 		public function leseo_deactivate() {
 			// 停用插件
 			$this->options = get_option( $this->option_var_name );
-			if ( $this->options['Delete'] ) { delete_option( $this->option_var_name ); }
+			if ( is_array( $this->options ) && isset( $this->options['Delete'] ) && $this->options['Delete'] ) {
+				delete_option( $this->option_var_name );
+			}
 
             // 恢复存储插件的URL前缀
-            if ( isset($this->options['lseso-s3-backup_url_path']) ) {
-                update_option('upload_url_path', $this->options['lseso-s3-backup_url_path']);
+            if ( isset( $this->options['lseso-s3-backup_url_path'] ) ) {
+                update_option( 'upload_url_path', $this->options['lseso-s3-backup_url_path'] );
             }
 		}
 
@@ -395,10 +410,10 @@ if (!class_exists('LESEO')) {
 			$pattern  = '/[一-龥]/u';
 			$jpattern = '/[ぁ-ん]+|[ァ-ヴ]+/u';
 			if ( ! preg_match( $pattern, $comment_data['comment_content'] ) ) {
-				err( __( '评论中需要有一个汉字！' ) );
+				wp_die( __( '评论中需要有一个汉字！' ) );
 			}
 			if ( preg_match( $jpattern, $comment_data['comment_content'] ) ) {
-				err( __( '不能有日文！' ) );
+				wp_die( __( '不能有日文！' ) );
 			}
 			return ( $comment_data );
 		}
@@ -523,7 +538,7 @@ if (!class_exists('LESEO')) {
 						// 构造附件post参数并插入媒体库(作为一个post插入到数据库)
 						$file_type = wp_check_filetype($filename);
 						$attachment = array(
-							'post_type' => 'attachement',
+							'post_type' => 'attachment',
 							'guid' => $new_src,
 							'post_mime_type' => $file_type['type'],
 							'post_title' => preg_replace('/\.[^.]+$/', '', $filename),
@@ -594,16 +609,17 @@ if (!class_exists('LESEO')) {
 		 * @param $post    : WP_Post对象
 		 */
 		public function leseo_save_images_in_post( $post_id, $post) {
-			if($post->post_status == 'publish') {  // 触发发布时执行
-				// 匹配<img>、src，存入$matches数组,
-				$preg = '/<img.*[\s]src=[\"|\'](.*)[\"|\'].*>/iU';
-				$num = preg_match_all($preg, $post->post_content, $matches);
+			if ( ! $post || ! is_a( $post, 'WP_Post' ) || $post->post_status != 'publish' ) {
+				return;
+			}
+			// 匹配<img>、src，存入$matches数组
+			$preg = '/<img.*[\s]src=[\"|\'](.*)[\"|\'].*>/iU';
+			$num = preg_match_all($preg, $post->post_content, $matches);
 
-				if ($num) {
-					$post = $this->_leseo_curl_get_contents($matches, wp_upload_dir(), $post);
-					global $wpdb;
-					$wpdb->update( $wpdb->posts, array('post_content' => $post->post_content), array('ID' => $post->ID));
-				}
+			if ($num) {
+				$post = $this->_leseo_curl_get_contents($matches, wp_upload_dir(), $post);
+				global $wpdb;
+				$wpdb->update( $wpdb->posts, array('post_content' => $post->post_content), array('ID' => $post->ID));
 			}
 		}
 
@@ -682,6 +698,9 @@ if (!class_exists('LESEO')) {
 	*/
 		public function leseo_image_alt_tag($content) {
         global $post;
+        if ( ! $post || ! isset( $post->post_title ) ) {
+            return $content;
+        }
         $post_title = $post->post_title;
         $pattern = '/<img(.*?)\/>/i';
         preg_match_all($pattern, $content, $matches);
@@ -763,27 +782,34 @@ if (!class_exists('LESEO')) {
 			$remain = ($_remain and $_remain[1] > current_time('timestamp')) ? $_remain[0] : False;
 			$remain_daily = ($_remain_daily and $_remain_daily[1] > current_time('timestamp')) ? $_remain_daily[0] : False;
 
+			$submit_types = isset( $this->options['leseo-submit-type'] ) ? $this->options['leseo-submit-type'] : array();
 			if ('normal' == $meta_value) {
 				$html = '已提交普通收录';
 			} elseif ('daily' == $meta_value) {
 				$html = '已提交快速收录';
 			} else {
-				if( in_array('daily', $this->options['leseo-submit-type']) ) {
+				if ( in_array( 'daily', $submit_types ) ) {
 					$is_daily_html = '<input type="checkbox" name="daily_submit" ';
 					if ( $remain_daily === False ) { $is_daily_html .= ' />快速收录  (剩余配额：10条)';
-					} else if ( $remain_daily > 0 ) { $is_daily_html .= ' />快速收录  (剩余配额：' . $remain_daily . '条)';
+					} else if ( $remain_daily > 0 ) { $is_daily_html .= ' />快速收录  (剩余配额：' . esc_attr( $remain_daily ) . '条)';
 					} else { $is_daily_html = '<span>快速收录配额已用完，请明天再试!</span>'; }
 				}
-				if( in_array('normal', $this->options['leseo-submit-type']) ) {
-					$is_normal_html = '<input type="checkbox" name="normal_submit" checked="TRUE" ';
+				if ( in_array( 'normal', $submit_types ) ) {
+					$is_normal_html = '<input type="checkbox" name="normal_submit" checked="checked" ';
 					if ( $remain === False ) { $is_normal_html .= ' />普通收录  (剩余配额：99999条)';
-					} else if ( $remain>0 ) { $is_normal_html .= ' />普通收录  (剩余配额：' . $remain . '条)';
+					} else if ( $remain > 0 ) { $is_normal_html .= ' />普通收录  (剩余配额：' . esc_attr( $remain ) . '条)';
 					} else { $is_normal_html = '<span>普通收录配额已用完，请明天再试!</span>'; }
 				}
 				$html = $is_daily_html . '<br />' . $is_normal_html;
-				if ( strlen($meta_value) > 0 ) { $html .= '<br /><p>' . $meta_value . '</p>'; }
+				if ( strlen( $meta_value ) > 0 ) { $html .= '<br /><p>' . esc_html( $meta_value ) . '</p>'; }
 			}
-			echo esc_html( $html );
+			$allowed_tags = array(
+				'input' => array( 'type' => array(), 'name' => array(), 'checked' => array() ),
+				'br'    => array(),
+				'span'  => array(),
+				'p'     => array(),
+			);
+			echo wp_kses( $html, $allowed_tags );
 		}
 
 		public function leseo_save_baidu_submitter_post_data( $post_id ) {
@@ -835,7 +861,7 @@ if (!class_exists('LESEO')) {
 								update_post_meta( $post_id, $this->leseo_submit_meta_key, $resp->message );
 							}
 						} else {
-							update_post_meta( $post_id, $this->leseo_submit_meta_key, show_message($resp) );
+							update_post_meta( $post_id, $this->leseo_submit_meta_key, is_wp_error( $resp ) ? $resp->get_error_message() : __( '推送请求失败', 'LeSEO' ) );
 						}
 					} else {
 						update_post_meta( $post_id, $this->leseo_submit_meta_key, 'API TOKEN未设置，无法推送！' );
@@ -921,7 +947,7 @@ if (!class_exists('LESEO')) {
 					if ( $title == '' ) {
 						$desc = get_bloginfo( 'description' );
 						if ( $desc ) {
-							$title = get_option( 'blogname' ) . ( $options['leseo-linkmark'] ?? ' - ' ) . $desc;
+							$title = get_option( 'blogname' ) . ( $this->options['leseo-linkmark'] ?? ' - ' ) . $desc;
 						} else {
 							$title = get_option( 'blogname' );
 						}
@@ -948,14 +974,13 @@ if (!class_exists('LESEO')) {
 					if ( is_category() ) {
 						$taxonomy_meta_options = get_term_meta( $cat, 'leseo_taxonomy_meta_options', true );  # 如果只需要分类, $cat 变量获取最简单
 					}
-					if ( is_tag() ) {
-						$term = single_tag_title('', false)
-							? get_term_by('name', single_tag_title('', false), 'post_tag')
-							: '';
-						$taxonomy_meta_options = get_term_meta( $term->term_id, 'leseo_taxonomy_meta_options', true );
+							if ( is_tag() ) {
+						$tag_name = single_tag_title( '', false );
+						$term = $tag_name ? get_term_by( 'name', $tag_name, 'post_tag' ) : null;
+						$taxonomy_meta_options = ( $term && ! is_wp_error( $term ) ) ? get_term_meta( $term->term_id, 'leseo_taxonomy_meta_options', true ) : array();
 					}
 
-					if ( isset($taxonomy_meta_options['leseo-taxonomy-meta-switcher'])
+					if ( is_array( $taxonomy_meta_options ) && isset($taxonomy_meta_options['leseo-taxonomy-meta-switcher'])
 					     && $taxonomy_meta_options['leseo-taxonomy-meta-switcher'] ) {
 						$keywords    = str_replace( '，', ',', trim( strip_tags( $taxonomy_meta_options['leseo-taxonomy-meta-keywords'] ?? $keywords ) ) );
 						$description = trim( strip_tags( $taxonomy_meta_options['leseo-taxonomy-meta-description'] ?? $description ) );
@@ -999,10 +1024,22 @@ if (!class_exists('LESEO')) {
 			return $this->options['leseo-linkmark'];
 		}
 
+		/**
+		 * document_title 末尾过滤器：主题通过 document_title_parts 修改标题时，此回调可覆盖首页标题
+		 */
+		public function leseo_document_title_home_override( $title ) {
+			$custom_title = trim( $this->options['leseo-selfindextitle'] ?? '' );
+			if ( ( is_home() || is_front_page() ) && ! empty( $custom_title ) ) {
+				return $custom_title;
+			}
+			return $title;
+		}
+
 		public function leseo_pre_get_document_title ( $title ) {
 			global $paged, $page, $post;
-			if ( ( is_home() || is_front_page() ) && isset( $this->options['leseo-selfindextitle'] ) ) {
-				return $this->options['leseo-selfindextitle'];
+			$custom_title = trim( $this->options['leseo-selfindextitle'] ?? '' );
+			if ( ( is_home() || is_front_page() ) && ! empty( $custom_title ) ) {
+				return $custom_title;
 			}
 			if ( is_singular() && $post->post_title) {
 				if ( isset($this->options['leseo-pageandsitename']) && $this->options['leseo-pageandsitename'] )  {
@@ -1019,10 +1056,8 @@ if (!class_exists('LESEO')) {
 			if ( is_category() || is_tag() ) {
 				if ( ! $paged ) { $paged = 1; }
 
-				$current_tax_name = single_cat_title( '', false );
-				if ( $current_tax_name ) {
-					$current_taxonomy      = is_tag() ? 'post_tag' : 'category';  # 默认category
-					$term                  =  get_term_by( 'name', $current_tax_name, $current_taxonomy );
+				$term = get_queried_object();
+				if ( $term && ! is_wp_error( $term ) && isset( $term->term_id ) ) {
 					$taxonomy_meta_options = get_term_meta( $term->term_id, 'leseo_taxonomy_meta_options', true );
 
 					if ( isset($taxonomy_meta_options['leseo-taxonomy-meta-switcher'])
@@ -1031,7 +1066,7 @@ if (!class_exists('LESEO')) {
 
 						if ( $paged >= 2 || $page >= 2 ) // 增加页数
 						{
-							$sep = $options['leseo-linkmark'] ?? ' - ';
+							$sep = $this->options['leseo-linkmark'] ?? ' - ';
 							$taxonomy_meta_options['leseo-taxonomy-meta-title'] .= $sep . sprintf( __( 'Page %s', 'LeSEO' ), max( $paged, $page ) );
 						}
 

@@ -4,11 +4,13 @@ Contributors: laobuluo
 Donate link: https://www.lezaiyun.com/donate/
 Tags:WordPress SEO
 Requires at least: 5.9.1
-Tested up to: 6.8.1
-Stable tag: 1.2.4
+Tested up to: 6.9.1
+Stable tag: 1.2.6
 Requires PHP: 7.0
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
+
+LeSeo，一款简单、实用且有温度的WordPress性能优化插件。
 
 == Description ==
 
@@ -25,7 +27,7 @@ LeSeo，一款简单、实用且有温度的WordPress性能优化插件。公众
 
 ## 网站支持
 
-* [乐在云工作室](https://www.lezaiyun.com/ "乐在云工作室")
+* [老蒋博客](https://www.laojiang.me/ "老蒋博客")
 
 * [主机评价网](https://www.zhujipingjia.com/ "主机评价网")
 
@@ -53,6 +55,28 @@ LeSeo，一款简单、实用且有温度的WordPress性能优化插件。公众
 1. screenshot.png
 
 == Changelog ==
+
+= 1.2.6 =
+* 修复静态分离激活后未开启时仍显示红色校验提示的问题（改为仅开启时校验必填项）
+* 修复与其它使用 AWS S3 SDK 插件的冲突（优先复用已加载的 SDK）
+* 自定义域名支持空值，仅非空时校验 URL 格式
+
+= 1.2.5 =
+* 修复未定义函数 err() 和 show_message() 导致的潜在错误，改用 wp_die() 和 WP_Error 处理
+* 新增 bs_cron_event 回调方法，避免定时任务触发时报错
+* 修复百度推送 Meta Box 使用 esc_html 导致表单控件无法正确渲染的问题
+* 修复 SEO TDK 中 $options 变量错误，改为 $this->options
+* 修复停用插件时 $this->options 未校验可能导致的 PHP Notice
+* 修复附件类型拼写错误 attachement -> attachment
+* 修复自定义头部/底部代码使用 sanitize_text_field 导致 script/style 标签被移除的问题
+* 修复 leseo_image_alt_tag、leseo_save_images_in_post、分类标签页等多处空值未校验
+* 修复 LeCache 缓存文件为空时 json_decode 返回 null 导致的错误
+* 修复百度 API 错误信息未定义时的数组越界问题
+* 百度推送 API 改为 HTTPS 协议
+* 修复 robots.txt 路径使用 $_SERVER['DOCUMENT_ROOT']，改用 ABSPATH
+* 修复 disable-copy.js 中废弃的 event.srcElement 及 PASSWORD 标签判断错误
+* 修正 TAG 内链随机替换次数参数（match_num_from/to）
+* 卸载插件时恢复 upload_url_path（静态分离功能）
 
 = 1.2.4 =
 * 兼容WP6.8.1测试，且修改文档

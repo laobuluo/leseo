@@ -20,17 +20,76 @@ if ( ! function_exists( 'get_lezaiyun_leseo_opt' ) ) {
 
 
 /**
- * AWS S3 Region 校验
+ * 获取当前静态分离开关状态（用于条件校验）
+ * 保存时从表单数据获取，页面加载时从已存选项获取
  */
-if ( ! function_exists( 'csf_customize_validate_region' ) ) {
-    function csf_customize_validate_region ( $value ) {
+if ( ! function_exists( 'leseo_s3_switch_is_on' ) ) {
+    function leseo_s3_switch_is_on() {
+        $options = array();
+        if ( ! empty( $_POST['data'] ) ) {
+            $decoded = json_decode( wp_unslash( $_POST['data'] ), true );
+            $options = isset( $decoded['_lezaiyun_leseo_option'] ) ? $decoded['_lezaiyun_leseo_option'] : ( is_array( $decoded ) ? $decoded : array() );
+        } elseif ( ! empty( $_POST['_lezaiyun_leseo_option'] ) && is_array( $_POST['_lezaiyun_leseo_option'] ) ) {
+            $options = wp_unslash( $_POST['_lezaiyun_leseo_option'] );
+        } else {
+            $options = get_option( '_lezaiyun_leseo_option', array() );
+        }
+        if ( ! is_array( $options ) ) {
+            $options = array();
+        }
+        $switch = isset( $options['leseo-s3-switch'] ) ? $options['leseo-s3-switch'] : '';
+        return ( $switch === 'true' || $switch === '1' || $switch === true );
+    }
+}
+
+/**
+ * 静态分离必填项校验（仅当开关开启时校验）
+ */
+if ( ! function_exists( 'leseo_validate_s3_required' ) ) {
+    function leseo_validate_s3_required( $value ) {
+        if ( ! leseo_s3_switch_is_on() ) {
+            return null;
+        }
+        return csf_validate_required( $value );
+    }
+}
+
+/**
+ * 静态分离 Region 校验（仅当开关开启时校验，允许七牛/R2 的 auto）
+ */
+if ( ! function_exists( 'leseo_validate_s3_region' ) ) {
+    function leseo_validate_s3_region( $value ) {
+        if ( ! leseo_s3_switch_is_on() ) {
+            return null;
+        }
         if ( empty( $value ) ) {
             return esc_html__( 'This field is required.', 'csf' );
         }
+        return null;
+    }
+}
 
-//        if ( ! preg_match("/^(?!-)[a-zA-Z0-9-]{1,63}(?<!-)$/", $value) ) {
-//            return esc_html__( 'Region must be a valid RFC host label.', 'csf' );
-//        }
+/**
+ * 静态分离自定义域名校验（空值不校验，非空时校验 URL 格式）
+ */
+if ( ! function_exists( 'leseo_validate_s3_domain' ) ) {
+    function leseo_validate_s3_domain( $value ) {
+        if ( ! leseo_s3_switch_is_on() || empty( trim( $value ) ) ) {
+            return null;
+        }
+        if ( ! filter_var( trim( $value ), FILTER_VALIDATE_URL ) ) {
+            return esc_html__( 'Please enter a valid URL.', 'csf' );
+        }
+        return null;
+    }
+}
+
+/**
+ * AWS S3 Region 校验（保留以兼容旧配置，新配置使用 leseo_validate_s3_region）
+ */
+if ( ! function_exists( 'csf_customize_validate_region' ) ) {
+    function csf_customize_validate_region( $value ) {
+        return leseo_validate_s3_region( $value );
     }
 }
 
@@ -54,8 +113,8 @@ $leseo_robots_filename = 'robots.txt';
 function leseo_robots_switch( $params, $leseo_robots_filename = 'robots.txt') {
 	if ( isset($params['leseo-robots-switch']) && $params['leseo-robots-switch'] ) {
 		if ( isset($params['leseo-robots-content']) ) {
-			file_put_contents(join(DIRECTORY_SEPARATOR, [ $_SERVER['DOCUMENT_ROOT'], $leseo_robots_filename ]),
-				sanitize_textarea_field( $params['leseo-robots-content']) );
+			$robots_path = ABSPATH . $leseo_robots_filename;
+			file_put_contents( $robots_path, sanitize_textarea_field( $params['leseo-robots-content'] ) );
 			$params['leseo-robots-content'] = null;
 		}
 	}
@@ -488,6 +547,7 @@ if ( class_exists( 'CSF' ) ) {
 				'id'    => 'leseo-selfindextitle',
 				'type'  => 'text',
 				'title' => '自定义首页标题',
+				'desc'  => '留空则使用站点默认标题。即使未开启上方「自定义SEO」也可生效。若主题自带 SEO 标题设置，LeSeo 会以更高优先级覆盖。',
 			),
 
 			array(
@@ -570,8 +630,8 @@ if ( class_exists( 'CSF' ) ) {
 				'type'  => 'textarea',
 				'title' => 'Robots.txt',
 				'help'  => '如果根目录没有生成可以自定义创建rebots.txt复制进',
-				'value' => file_exists(join(DIRECTORY_SEPARATOR, [ $_SERVER['DOCUMENT_ROOT'], $leseo_robots_filename ])) ?
-					esc_textarea( file_get_contents(join(DIRECTORY_SEPARATOR, [ $_SERVER['DOCUMENT_ROOT'], $leseo_robots_filename ])) ) :
+				'value' => file_exists( ABSPATH . $leseo_robots_filename ) ?
+					esc_textarea( file_get_contents( ABSPATH . $leseo_robots_filename ) ) :
 					'',
 				'dependency' => array( 'leseo-robots-switch', '==', 'true' ),
 			),
@@ -713,7 +773,7 @@ CSF::createSection( $prefix, array(
         array(
               'type'    => 'notice',
               'style'   => 'info',
-              'content' => '主流对象存储服务商均采用的S3 SDK，支持腾讯云、阿里云、七牛云、又拍云、S3、R2等。（<a href="https://www.lezaiyun.com/leseo.html" target="_blank">说明文档</a>）',
+              'content' => '主流对象存储服务商均采用的S3 SDK，支持腾讯云、阿里云、七牛云、又拍云、S3、R2等。（<a href="https://www.lezaiyun.com/817.html" target="_blank">说明文档</a>）',
         ),
 
         array(
@@ -742,7 +802,7 @@ CSF::createSection( $prefix, array(
             'title' => '空间名称（Bucket）',
             'after'    => '<p>需要用户提前在对应对象存储服务商创建存储桶。</p>',
             'dependency' => array( 'leseo-s3-switch', '==', 'true' ),
-            'validate' => 'csf_validate_required',
+            'validate' => 'leseo_validate_s3_required',
         ),
 
         array(
@@ -751,7 +811,7 @@ CSF::createSection( $prefix, array(
             'title' => '所属地域（Region）',
             'after'    => '<p>存储桶所属地区，示范：ap-shanghai。七牛云、CloudFlare R2 填auto。【不能填写中文】</p>',
             'dependency' => array( 'leseo-s3-switch', '==', 'true' ),
-            'validate' => 'csf_customize_validate_region',
+            'validate' => 'leseo_validate_s3_region',
         ),
 
         array(
@@ -766,7 +826,7 @@ CSF::createSection( $prefix, array(
             'id'    => 'leseo-s3-domain',
             'type'  => 'Text',
             'title' => '自定义域名',
-            'validate' => 'csf_validate_url',
+            'validate' => 'leseo_validate_s3_domain',
             'attributes' => array(
                     'style'    => 'width: 80%;'
                 ),
@@ -782,7 +842,7 @@ CSF::createSection( $prefix, array(
                 'style'    => 'width:60%;'
             ),
             'dependency' => array( 'leseo-s3-switch', '==', 'true' ),
-            'validate' => 'csf_validate_required',
+            'validate' => 'leseo_validate_s3_required',
         ),
         array(
             'id'    => 'leseo-s3-secretkey',
@@ -793,7 +853,7 @@ CSF::createSection( $prefix, array(
             ),
             'after' => '<p>对应对象存储服务商的AccessKey/SecretKey密钥信息。</p>',
             'dependency' => array( 'leseo-s3-switch', '==', 'true' ),
-            'validate' => 'csf_validate_required',
+            'validate' => 'leseo_validate_s3_required',
         ),
     )
 ));

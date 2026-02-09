@@ -6,7 +6,10 @@
     use Aws\S3\S3Client;
 	use Aws\Exception\AwsException;
 
-    require 'sdk/aws-autoloader.php';
+    // 避免与其它使用 AWS SDK 的插件冲突，仅当未加载时引入
+    if ( ! class_exists( 'Aws\S3\S3Client' ) ) {
+        require_once __DIR__ . '/sdk/aws-autoloader.php';
+    }
 	class LeseoS3Api
 	{
 		private $s3;

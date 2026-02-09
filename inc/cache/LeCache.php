@@ -12,9 +12,10 @@ class LeCache {
 	}
 
 	public function set($key, $data) {
-		$caches = file_get_contents($this->cache_file);
+		$caches = @file_get_contents($this->cache_file);
 		if ( $caches === False ) $caches = "";
-		$caches = json_decode($caches, True);  // 以 list 形式取出，当无法解析字符串内容时，返回null
+		$caches = json_decode($caches, True);
+		$caches = is_array($caches) ? $caches : array();
 		$datetime = new \DateTime('now', new \DateTimeZone('Asia/Shanghai'));
 		$caches[$key] = [$data, $datetime->setTime(23, 59, 59)->getTimestamp()];
 

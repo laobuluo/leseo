@@ -58,14 +58,15 @@ class LeseoBaiduResponse {
 
     public function _handle_error($resp){
         $this->error = $resp->error;
-        $this->message = $this->messages[$resp->message];
+        $msg_key = isset($resp->message) ? $resp->message : '';
+        $this->message = isset($this->messages[$msg_key]) ? $this->messages[$msg_key] : $msg_key;
     }
 }
 
 
 class LeoBaiduSubmitter {
     private $urls_temp_file;
-    private $api_url = 'http://data.zz.baidu.com/urls?';
+    private $api_url = 'https://data.zz.baidu.com/urls?';
     private $daily_param = '&type=daily';
     private $token;
     private $api;

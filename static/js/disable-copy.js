@@ -1,17 +1,22 @@
 document.oncontextmenu = function() {
-    return false
+    return false;
 };
 
-document.onselectstart = function() {
-    return !(event.srcElement.type !== "text" && event.srcElement.type !== "textarea" && event.srcElement.type !== "password");
+document.onselectstart = function(e) {
+    const obj = e && (e.target || e.srcElement);
+    if (!obj) return false;
+    var tag = obj.tagName ? obj.tagName.toUpperCase() : '';
+    var type = (obj.type || '').toLowerCase();
+    return !(tag !== 'TEXTAREA' && (tag !== 'INPUT' || (type !== 'text' && type !== 'password')));
 };
 
 if (window.sidebar) {
     document.onmousedown = function(e) {
         const obj = e.target;
-        return obj.tagName.toUpperCase() === "INPUT" || obj.tagName.toUpperCase() === "TEXTAREA" || obj.tagName.toUpperCase() === "PASSWORD";
-    }
+        if (!obj) return true;
+        var tag = obj.tagName ? obj.tagName.toUpperCase() : '';
+        return tag === 'INPUT' || tag === 'TEXTAREA';
+    };
 }
 
 if (parent.frames.length > 0) top.location.replace(document.location);
-
