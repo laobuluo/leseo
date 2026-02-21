@@ -140,10 +140,34 @@ leseo/
 
 ## 更新日志
 
+### 1.2.10
+- 修复静态分离配置后无法上传图片/静态文件到对象存储的问题：自定义域名为空时未写入 upload_url_path，导致 WP 仍用本地地址且 key 前缀异常；现改为在保存时若自定义域名为空则用 EndPoint + Bucket 自动构造默认访问地址并写入。
+- 修复 key_handler 在 upload_url_path 为空或无效时的 PHP 警告（parse_url 结果非数组时的安全判断）。
+- 静态分离仅当 S3 客户端初始化成功（isReady）时再注册上传/删除钩子，避免 Region 异常等导致客户端为 null 时上传报错；S3 Api 增加 isReady() 及 Upload/Delete/hasExist 的空客户端防护。
+- 修复上传到对象存储仍失败（无法创建目录/上传文件）：移除 putObject 的 ACL 参数，避免云厂商禁用对象 ACL 导致 403；自定义 EndPoint 时启用 path_style 并统一默认地址为 endpoint/bucket，key_handler 在 path 仅为 bucket 名时不作为 key 前缀；上传前检查本地文件可读并写入 error.log 便于排查。
+
+### 1.2.9
+- 新增站外链接优化：支持正常模式 / ?goto=BASE64(url) / ?goto=URL 中转模式，可选新窗口、nofollow、白名单域名，以及可配置自动或手动跳转的中间过渡页面。
+- 优化和完善图片本地化功能采用手工本地化模式。
+
+### 1.2.8
+- 新增 TinyPNG 图片压缩：在功能优化中接入 TinyPNG API，上传图片自动压缩（每月免费 500 张，可自填 API Key）。
+- TinyPNG 压缩逻辑独立为 inc/leseo-tinypng.php，便于后续维护与扩展。
+
+### 1.2.7
+- 修复自定义分页符导致出现 /laojiang/2/page/2/ 这类重复分页路径的问题。
+- 完善标签 URL 更改功能，支持 /tag/ID/ 形式，避免仅重写规则生效但链接仍为 slug 的情况。
+- 修复缓存命名空间、S3 备份路径、禁用复制脚本等多处兼容与细节问题。
+- 新增图片上传自动转换 WebP 开关（需服务器 GD 支持 WebP）。
+- 新增「手动推送」「百度收录查询」后台页面，支持批量推送和收录查询入口。
+- 新增定时批量百度推送、LeCache tmp 目录自动创建等完善项。
+
 ### 1.2.6
-- 修复静态分离激活后未开启时仍显示红色校验提示的问题
+- 修复静态分离激活后未开启时仍显示红色校验提示的问题（改为仅开启时校验必填项）
 - 修复与其它使用 AWS S3 SDK 插件的冲突（优先复用已加载的 SDK）
 - 自定义域名支持空值，仅非空时校验 URL 格式
+- 新增自定义分页 page 符和 TAG ID URL 功能
+- 新增：前台顶部管理菜单、屏蔽 Trackbacks/Pingback、移除 dns-prefetch、移除 Dashicons、移除 RSD 开关
 
 ### 1.2.5
 - 修复未定义函数 err() 和 show_message() 导致的潜在错误

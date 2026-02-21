@@ -7,8 +7,11 @@ class LeCache {
 
 	public function __construct($type)
 	{
-		// tmp 可修改，但目录必须存在于本文件所在目录，否则无法正常创建缓存文件。为避免每次创建实例时都判断形成浪费，直接手动创建目录tmp
-		$this->cache_file = join(DIRECTORY_SEPARATOR, [dirname(__FILE__), 'tmp', 'cache_' . $type]);
+		$tmp_dir = dirname(__FILE__) . DIRECTORY_SEPARATOR . 'tmp';
+		if ( ! is_dir( $tmp_dir ) ) {
+			wp_mkdir_p( $tmp_dir );
+		}
+		$this->cache_file = $tmp_dir . DIRECTORY_SEPARATOR . 'cache_' . $type;
 	}
 
 	public function set($key, $data) {

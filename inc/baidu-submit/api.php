@@ -34,7 +34,6 @@ class LeseoBaiduResponse {
         } else {
             $this->_handle_success($resp);
         }
-        # TODO: 集中不同的返回内容的返回值进行应对处理
     }
 
     public function _handle_success($resp){
@@ -95,12 +94,22 @@ class LeoBaiduSubmitter {
         }
     }
 
-    public function get_urls() {
-        $urls_temp_file_path = dirname(__FILE__) . '/' . $this->urls_temp_file;
-        if(file_exists($urls_temp_file_path)){
-            $urls_string = file_get_contents($urls_temp_file_path);
-
+    /**
+     * 从临时文件读取待推送URL列表（用于批量任务等场景）
+     *
+     * @param string $temp_filename 临时文件名，默认为 urls_temp.txt
+     * @return array URL数组
+     */
+    public function get_urls( $temp_filename = 'urls_temp.txt' ) {
+        $urls_temp_file_path = dirname( __FILE__ ) . '/' . $temp_filename;
+        if ( file_exists( $urls_temp_file_path ) ) {
+            $urls_string = file_get_contents( $urls_temp_file_path );
+            if ( $urls_string !== false ) {
+                $urls = array_filter( array_map( 'trim', explode( "\n", $urls_string ) ) );
+                return array_values( array_filter( $urls, 'esc_url_raw' ) );
+            }
         }
+        return array();
     }
 
 }

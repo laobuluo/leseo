@@ -3,7 +3,7 @@
 Plugin Name: LeSeo
 Plugin URI: https://www.lezaiyun.com/817.html
 Description: LeSeo，一个比较全面、免费的WordPress SEO插件。公众号：老蒋朋友圈。
-Version: 1.2.6
+Version: 1.2.10
 Author: 老蒋和他的伙伴们
 Author URI: https://www.lezaiyun.com
 Requires PHP: 7.0
@@ -53,6 +53,8 @@ if (!class_exists('LESEO')) {
             include_once plugin_dir_path( __FILE__ ) . 'inc/baidu-submit/api.php';
             include_once plugin_dir_path( __FILE__ ) . 'inc/cache/LeCache.php';
             include_once plugin_dir_path( __FILE__ ) . 'inc/awss3/api.php';
+			include_once plugin_dir_path( __FILE__ ) . 'inc/leseo-tinypng.php';
+			include_once plugin_dir_path( __FILE__ ) . 'inc/leseo-base64.php';
         }
 
 
@@ -72,7 +74,8 @@ if (!class_exists('LESEO')) {
 
 			add_action( 'laobuluo_bs_event', array($this, 'bs_cron_event') );
 
-			register_deactivation_hook( __FILE__, array($this, 'leseo_deactivate') );  # 禁用时触发钩子
+			register_activation_hook( __FILE__, array($this, 'leseo_activate') );      # 启用时刷新重写规则
+			register_deactivation_hook( __FILE__, array($this, 'leseo_deactivate') ); # 禁用时触发钩子
 
             // csf框架相关hooks
             add_filter( 'csf__lezaiyun_leseo_option_save', array($this, 'leseo_s3_switch_csf_filter') );
@@ -115,6 +118,23 @@ if (!class_exists('LESEO')) {
 				remove_action( 'template_redirect', 'rest_output_link_header', 11, 0 );
 			}
 
+			//屏蔽REST API (增强版的JSON禁用)
+			if ( isset($this->options['leseo-rest-api']) && $this->options['leseo-rest-api'] == 1 ) {
+				add_filter( 'rest_enabled', '__return_false' );
+				add_filter( 'rest_jsonp_enabled', '__return_false' );
+				remove_action( 'wp_head', 'rest_output_link_wp_head' );
+				remove_action( 'wp_head', 'wp_oembed_add_discovery_links' );
+				remove_action( 'template_redirect', 'rest_output_link_header', 11, 0 );
+				add_action( 'json_api_enabled', '__return_false' );
+				// 完全禁用REST API访问
+				add_filter( 'rest_authentication_errors', function( $access ) {
+					if ( ! is_user_logged_in() ) {
+						return new WP_Error( 'rest_not_logged_in', 'REST API仅对登录用户开放', array( 'status' => 401 ) );
+					}
+					return $access;
+				});
+			}
+
 			//禁止小工具样式
 			if ( isset($this->options['leseo-widgets-block-editor']) && $this->options['leseo-widgets-block-editor'] == 1 ) {
 				add_action( 'after_setup_theme', array($this, 'leseo_example_theme_support') );
@@ -136,10 +156,53 @@ if (!class_exists('LESEO')) {
 				add_action( 'init', array($this, 'leseo_disable_emojis') );
 			}
 
+			//屏蔽Trackbacks/Pingback
+			if ( isset($this->options['leseo-trackback']) && $this->options['leseo-trackback'] == 1 ) {
+				add_filter( 'xmlrpc_methods', array($this, 'leseo_remove_xmlrpc_methods') );
+				add_filter( 'wp_headers', array($this, 'leseo_remove_pingback_headers') );
+				add_action( 'pre_ping', array($this, 'leseo_no_self_ping') );
+			}
+
+			//前台顶部管理菜单开关
+			if ( isset($this->options['leseo-admin-bar']) && $this->options['leseo-admin-bar'] == 1 ) {
+				add_filter( 'show_admin_bar', '__return_false' );
+			}
+
+			//移除dns-prefetch
+			if ( isset($this->options['leseo-dns-prefetch']) && $this->options['leseo-dns-prefetch'] == 1 ) {
+				remove_action( 'wp_head', 'wp_resource_hints', 2 );
+				add_filter( 'wp_resource_hints', array($this, 'leseo_remove_dns_prefetch'), 10, 2 );
+			}
+
+			//移除Dashicons
+			if ( isset($this->options['leseo-dashicons']) && $this->options['leseo-dashicons'] == 1 ) {
+				add_action( 'wp_enqueue_scripts', array($this, 'leseo_remove_dashicons'), 999 );
+			}
+
+			//移除RSD (独立控制，与离线编辑端口分开)
+			if ( isset($this->options['leseo-rsd']) && $this->options['leseo-rsd'] == 1 ) {
+				remove_action( 'wp_head', 'rsd_link' );
+			}
+
 			// 功能优化
 			// 上传图片重命名
 			if ( isset($this->options['leseo-renameimg']) && $this->options['leseo-renameimg'] == 1 ) {
 				add_filter( 'wp_handle_upload_prefilter', array($this, 'leseo_rename_upload_img') );
+			}
+
+			// 图片转换WebP格式（SEO基础优化）
+			if ( isset($this->options['leseo-webp-convert']) && $this->options['leseo-webp-convert'] == 1 ) {
+				add_filter( 'wp_handle_upload', array($this, 'leseo_convert_upload_to_webp'), 10, 2 );
+				add_filter( 'upload_mimes', array($this, 'leseo_allow_webp_upload') );
+			}
+
+			// TinyPNG 图片压缩（功能优化）
+			if (
+				isset( $this->options['leseo-tinypng-switch'] ) && $this->options['leseo-tinypng-switch'] == 1
+				&& ! empty( $this->options['leseo-tinypng-api-key'] )
+			) {
+				// 放在 WebP 转换之后执行（若启用 WebP）
+				add_filter( 'wp_handle_upload', array( $this, 'leseo_tinypng_compress_upload' ), 30, 2 );
 			}
 
 			//禁止裁剪大图2560
@@ -193,8 +256,11 @@ if (!class_exists('LESEO')) {
 
 			// 粘贴图片本地化（功能优化）
 			if ( isset($this->options['leseo-disable-uploadimg']) && $this->options['leseo-disable-uploadimg'] == 1 ) {
-				// 发布/草稿/预览时触发 - 优先级设置为大值，尽可能晚去执行。 暂时并行进行，待优化超时的可能性。
-				add_action('save_post', array($this, 'leseo_save_images_in_post'), 99999, 2);
+				// 改为手动触发：经典编辑器按钮 + Gutenberg 按钮，通过AJAX执行本地化并替换正文URL
+				add_action( 'media_buttons', array( $this, 'leseo_add_localize_images_button' ), 20 );
+				add_action( 'admin_enqueue_scripts', array( $this, 'leseo_enqueue_localize_images_assets' ) );
+				add_action( 'wp_ajax_leseo_localize_images', array( $this, 'leseo_ajax_localize_images' ) );
+				add_action( 'enqueue_block_editor_assets', array( $this, 'leseo_enqueue_localize_images_gutenberg' ) );
 			}
 
 			// 移除图片 srcset 和 Size 标签（功能优化）
@@ -223,6 +289,16 @@ if (!class_exists('LESEO')) {
 					},
 					100
 				);
+			}
+
+			// 自定义分页符
+			if ( isset($this->options['leseo-custom-pagination']) && $this->options['leseo-custom-pagination'] == 1 ) {
+				add_filter( 'query_vars', array($this, 'leseo_custom_pagination_query_vars') );
+				add_action( 'init', array($this, 'leseo_pagination_rewrite_init') );
+				add_filter( 'paginate_links', array($this, 'leseo_custom_pagination_links') );
+				add_filter( 'get_pagenum_link', array($this, 'leseo_custom_pagenum_link'), 10, 2 );
+				add_filter( 'next_posts_link_attributes', array($this, 'leseo_custom_next_posts_link') );
+				add_filter( 'previous_posts_link_attributes', array($this, 'leseo_custom_previous_posts_link') );
 			}
 
 
@@ -258,6 +334,17 @@ if (!class_exists('LESEO')) {
 				add_filter( 'the_content', array($this, 'leseo_tag_link'), 1 );
 			}
 
+			//标签URL更改：开启后标签URL改为 /tag/%tag_id% 格式
+			if ( isset($this->options['leseo-tag-rewrite']) && $this->options['leseo-tag-rewrite'] == 1 ) {
+				add_action( 'init', array($this, 'leseo_tag_rewrite_init') );
+				add_filter( 'post_tag_rewrite_rules', array($this, 'leseo_tag_rewrite_rules') );
+				add_filter( 'query_vars', array($this, 'leseo_tag_query_vars') );
+				add_filter( 'request', array($this, 'leseo_tag_request') );
+				add_filter( 'term_link', array($this, 'leseo_tag_term_link_id'), 10, 3 );
+				// 在设置保存时刷新重写规则
+				add_action( 'admin_init', array($this, 'leseo_flush_rewrite_rules') );
+			}
+
 			// TDK SEO
 			$custom_index_title = trim( $this->options['leseo-selfindextitle'] ?? '' );
 			$has_custom_home_title = ! empty( $custom_index_title );
@@ -273,6 +360,26 @@ if (!class_exists('LESEO')) {
 			} elseif ( $has_custom_home_title ) {
 				add_filter( 'pre_get_document_title', array($this, 'leseo_pre_get_document_title'), PHP_INT_MAX );
 				add_filter( 'document_title', array($this, 'leseo_document_title_home_override'), PHP_INT_MAX );
+			}
+
+			// 站外链接优化（SEO基础优化）
+			if ( ! empty( $this->options['leseo-extlink-enable'] ) ) {
+				add_filter( 'the_content', array( $this, 'leseo_optimize_external_links' ), 20 );
+				// ?goto= 中转处理交由单独文件中的类完成
+				$ext_cfg = array(
+					'mode'            => isset( $this->options['leseo-extlink-mode'] ) ? $this->options['leseo-extlink-mode'] : 'normal',
+					'transition'      => ! empty( $this->options['leseo-extlink-transition'] ),
+					'transition_auto' => ! empty( $this->options['leseo-extlink-transition-auto'] ),
+					'whitelist'       => isset( $this->options['leseo-extlink-whitelist'] ) ? $this->options['leseo-extlink-whitelist'] : '',
+				);
+				add_action(
+					'template_redirect',
+					function () use ( $ext_cfg ) {
+						if ( class_exists( '\\lezaiyun\\Leseo\\inc\\Base64\\LeseoBase64' ) ) {
+							\lezaiyun\Leseo\inc\Base64\LeseoBase64::handle_goto( $ext_cfg );
+						}
+					}
+				);
 			}
 
 			// 网站地图
@@ -299,6 +406,9 @@ if (!class_exists('LESEO')) {
 				add_action( 'add_meta_boxes', array($this, 'leseo_add_baidu_submitter_meta_box') );
 
 				add_action( 'save_post', array($this, 'leseo_save_baidu_submitter_post_data') );
+
+				# 手动推送与百度收录查询子菜单
+				add_action( 'admin_menu', array($this, 'leseo_add_submit_submenus'), 20 );
 			}
 
 			// 页头页尾CSS代码插入（附加功能，仅管理员可设置）
@@ -323,37 +433,84 @@ if (!class_exists('LESEO')) {
 			}
 
 
-            // 静态分离 - 第三方存储 - 这里似乎没有必要性
+            // 静态分离 - 第三方存储（仅当 S3 客户端初始化成功时注册上传/删除钩子，避免 Region 异常等导致上传报错）
             if ( ! empty($this->options['leseo-s3-switch'] ) ) {
                 $this->wp_upload_dir = wp_get_upload_dir();
                 $this->s3_object = new Tools\S3\Api\LeseoS3Api($this->options);  // option更新后，若变动了参数，则AwsS3Api实例的重新创建，目前只有setting中会触发
 
-                # 避免上传插件/主题被同步到对象存储
-                if ( substr_count( $_SERVER['REQUEST_URI'], '/update.php' ) <= 0 ) {
-                    add_filter('wp_handle_upload', array($this, 'leseo_s3_upload_attachments'));
-                    if ( version_compare(get_bloginfo('version'), 5.3, '<') ){
-                        add_filter( 'wp_update_attachment_metadata', array($this, 'leseo_s3_upload_and_thumbs') );
-                    } else {
-                        add_filter( 'wp_generate_attachment_metadata', array($this, 'leseo_s3_upload_and_thumbs') );
-                        add_filter( 'wp_save_image_editor_file', array($this, 'leseo_s3_save_image_editor_file') );
+                if ( $this->s3_object->isReady() ) {
+                    # 避免上传插件/主题被同步到对象存储
+                    if ( substr_count( $_SERVER['REQUEST_URI'], '/update.php' ) <= 0 ) {
+                        add_filter('wp_handle_upload', array($this, 'leseo_s3_upload_attachments'));
+                        if ( version_compare(get_bloginfo('version'), 5.3, '<') ){
+                            add_filter( 'wp_update_attachment_metadata', array($this, 'leseo_s3_upload_and_thumbs') );
+                        } else {
+                            add_filter( 'wp_generate_attachment_metadata', array($this, 'leseo_s3_upload_and_thumbs') );
+                            add_filter( 'wp_save_image_editor_file', array($this, 'leseo_s3_save_image_editor_file') );
+                        }
                     }
+
+                    # 检测不重复的文件名
+                    add_filter('wp_unique_filename', array($this, 'leseo_s3_unique_filename') );
+
+                    # 删除文件时触发删除远端文件，该删除会默认删除缩略图
+                    add_action('delete_attachment', array($this, 'leseo_s3_delete_remote_attachment'));
                 }
-
-                # 检测不重复的文件名
-                add_filter('wp_unique_filename', array($this, 'leseo_s3_unique_filename') );
-
-                # 删除文件时触发删除远端文件，该删除会默认删除缩略图
-                add_action('delete_attachment', array($this, 'leseo_s3_delete_remote_attachment'));
             }
 
 		}
 
 
 		/**
-		 * 百度推送定时任务回调（预留）
+		 * 插件激活时刷新重写规则
+		 */
+		public function leseo_activate() {
+			flush_rewrite_rules();
+		}
+
+		/**
+		 * 百度推送定时任务回调：批量推送未提交的文章
 		 */
 		public function bs_cron_event() {
-			// 预留扩展：批量推送等定时任务
+			if ( empty( $this->options['leseo-submit-switch'] ) || empty( $this->options['leseo-submit-bdtoken'] ) ) {
+				return;
+			}
+			$types = isset( $this->options['leseo-resource-type'] ) && $this->options['leseo-resource-type']
+				? $this->options['leseo-resource-type'] : array( 'post' );
+			$posts = get_posts( array(
+				'post_type'      => $types,
+				'post_status'    => 'publish',
+				'posts_per_page' => 50,
+				'date_query'     => array( array( 'after' => '7 days ago' ) ),
+				'meta_query'     => array(
+					array(
+						'key'     => $this->leseo_submit_meta_key,
+						'compare' => 'NOT EXISTS',
+					),
+				),
+			) );
+			if ( empty( $posts ) ) {
+				return;
+			}
+			$urls = array();
+			foreach ( $posts as $p ) {
+				$permalink = get_permalink( $p->ID );
+				if ( $permalink ) {
+					$urls[] = $permalink;
+				}
+			}
+			if ( ! empty( $urls ) ) {
+				$baidu = new BaiduSubmit\LeoBaiduSubmitter(
+					array( 'token' => $this->options['leseo-submit-bdtoken'] ),
+					site_url()
+				);
+				$resp = $baidu->request( 'normal', $urls );
+				if ( ! is_wp_error( $resp ) && $resp->error === null ) {
+					foreach ( $posts as $p ) {
+						update_post_meta( $p->ID, $this->leseo_submit_meta_key, 'normal' );
+					}
+				}
+			}
 		}
 
 		public function leseo_deactivate() {
@@ -363,10 +520,11 @@ if (!class_exists('LESEO')) {
 				delete_option( $this->option_var_name );
 			}
 
-            // 恢复存储插件的URL前缀
-            if ( isset( $this->options['lseso-s3-backup_url_path'] ) ) {
-                update_option( 'upload_url_path', $this->options['lseso-s3-backup_url_path'] );
-            }
+			// 恢复存储插件的URL前缀（兼容旧版 lseso 拼写）
+			$backup_path = $this->options['leseo-s3-backup_url_path'] ?? $this->options['lseso-s3-backup_url_path'] ?? null;
+			if ( $backup_path ) {
+				update_option( 'upload_url_path', $backup_path );
+			}
 		}
 
 		public function leseo_no_autosave() {
@@ -398,10 +556,269 @@ if (!class_exists('LESEO')) {
 			}
 		}
 
+		/**
+		 * 移除XML-RPC方法中的pingback功能
+		 */
+		public function leseo_remove_xmlrpc_methods( $methods ) {
+			unset( $methods['pingback.ping'] );
+			unset( $methods['pingback.extensions.getPingbacks'] );
+			unset( $methods['pingback.extensions.getPings'] );
+			return $methods;
+		}
+
+		/**
+		 * 移除HTTP头中的pingback相关头信息
+		 */
+		public function leseo_remove_pingback_headers( $headers ) {
+			if ( isset( $headers['X-Pingback'] ) ) {
+				unset( $headers['X-Pingback'] );
+			}
+			return $headers;
+		}
+
+		/**
+		 * 禁止自我pingback
+		 */
+		public function leseo_no_self_ping( &$links ) {
+			$home = get_option( 'home' );
+			foreach ( $links as $l => $link ) {
+				if ( 0 === strpos( $link, $home ) ) {
+					unset( $links[$l] );
+				}
+			}
+		}
+
+		/**
+		 * 移除DNS预取
+		 */
+		public function leseo_remove_dns_prefetch( $hints, $relation_type ) {
+			if ( 'dns-prefetch' === $relation_type ) {
+				return array();
+			}
+			return $hints;
+		}
+
+		/**
+		 * 移除Dashicons字体
+		 */
+		public function leseo_remove_dashicons() {
+			if ( ! is_user_logged_in() ) {
+				wp_deregister_style( 'dashicons' );
+				wp_dequeue_style( 'dashicons' );
+			}
+		}
+
 
 		public function leseo_rename_upload_img( $file ) {
 			$time         = date( "Y-m-d H:i:s" );
 			$file['name'] = $time . "" . mt_rand( 100, 999 ) . "." . pathinfo( $file['name'], PATHINFO_EXTENSION );
+			return $file;
+		}
+
+		/**
+		 * 将上传的图片转换为WebP格式
+		 *
+		 * @param array $file   上传文件信息
+		 * @param string $overrides 覆盖选项（未使用）
+		 * @return array
+		 */
+		public function leseo_convert_upload_to_webp( $file, $overrides = '' ) {
+			if ( ! function_exists( 'imagewebp' ) || empty( $file['file'] ) || ! empty( $file['error'] ) ) {
+				return $file;
+			}
+			$mime = isset( $file['type'] ) ? $file['type'] : '';
+			$supported = array( 'image/jpeg', 'image/png', 'image/gif' );
+			if ( ! in_array( $mime, $supported, true ) ) {
+				return $file;
+			}
+
+			$file_path = $file['file'];
+			$img = null;
+			if ( $mime === 'image/jpeg' ) {
+				$img = @imagecreatefromjpeg( $file_path );
+			} elseif ( $mime === 'image/png' ) {
+				$img = @imagecreatefrompng( $file_path );
+				if ( $img ) {
+					imagepalettetotruecolor( $img );
+					imagealphablending( $img, true );
+					imagesavealpha( $img, true );
+				}
+			} elseif ( $mime === 'image/gif' ) {
+				$img = @imagecreatefromgif( $file_path );
+			}
+
+			if ( ! $img ) {
+				return $file;
+			}
+
+			$webp_path = preg_replace( '/\.(jpe?g|png|gif)$/i', '.webp', $file_path );
+			$quality = 82;
+
+			if ( @imagewebp( $img, $webp_path, $quality ) ) {
+				imagedestroy( $img );
+				if ( file_exists( $webp_path ) && filesize( $webp_path ) > 0 ) {
+					@unlink( $file_path );
+					$file['file'] = $webp_path;
+					$file['url']  = str_replace( basename( $file['url'] ), basename( $webp_path ), $file['url'] );
+					$file['type'] = 'image/webp';
+					$file['size'] = filesize( $webp_path );
+				}
+			} else {
+				imagedestroy( $img );
+			}
+			return $file;
+		}
+
+		/**
+		 * 确保 WebP 格式可被上传（兼容旧版 WordPress）
+		 */
+		public function leseo_allow_webp_upload( $mimes ) {
+			if ( ! isset( $mimes['webp'] ) ) {
+				$mimes['webp'] = 'image/webp';
+			}
+			return $mimes;
+		}
+
+		/**
+		 * 站外链接优化：将正文中的站外链接改写为 ?goto=... 形式，并可附加新窗口 / nofollow
+		 */
+		public function leseo_optimize_external_links( $content ) {
+			$mode = isset( $this->options['leseo-extlink-mode'] ) ? $this->options['leseo-extlink-mode'] : 'normal';
+			if ( $mode === 'normal' ) {
+				return $content;
+			}
+
+			$site_host = wp_parse_url( site_url(), PHP_URL_HOST );
+			$newtab    = ! empty( $this->options['leseo-extlink-newtab'] );
+			$nofollow  = ! empty( $this->options['leseo-extlink-nofollow'] );
+			$whitelist_raw = isset( $this->options['leseo-extlink-whitelist'] ) ? $this->options['leseo-extlink-whitelist'] : '';
+			$whitelist = array();
+			if ( ! empty( $whitelist_raw ) ) {
+				$lines = preg_split( '/\r\n|\r|\n/', $whitelist_raw );
+				foreach ( $lines as $line ) {
+					$line = trim( $line );
+					if ( $line !== '' ) {
+						$whitelist[] = strtolower( $line );
+					}
+				}
+			}
+
+			$pattern = '/<a\b[^>]*href=[\"\']([^\"\']+)[\"\'][^>]*>/i';
+			$content = preg_replace_callback(
+				$pattern,
+				function ( $m ) use ( $mode, $site_host, $newtab, $nofollow, $whitelist ) {
+					$tag  = $m[0];
+					$href = $m[1];
+
+					// 跳过 mailto:/tel:/javascript:/# 等
+					if ( preg_match( '/^(mailto:|tel:|javascript:|\\#)/i', $href ) ) {
+						return $tag;
+					}
+
+					// 相对链接视为站内
+					$href_host = wp_parse_url( $href, PHP_URL_HOST );
+					if ( empty( $href_host ) ) {
+						return $tag;
+					}
+
+					// 本站域名直接跳过
+					if ( $site_host && strtolower( $href_host ) === strtolower( $site_host ) ) {
+						return $tag;
+					}
+
+					// 白名单域名跳过（正常内链模式）
+					if ( ! empty( $whitelist ) ) {
+						$lower_host = strtolower( $href_host );
+						foreach ( $whitelist as $domain ) {
+							if ( $lower_host === $domain || substr( $lower_host, - ( strlen( $domain ) + 1 ) ) === '.' . $domain ) {
+								return $tag;
+							}
+						}
+					}
+
+					$target_url = $href;
+					if ( $mode === 'goto_base64' ) {
+						$encoded = base64_encode( $target_url );
+						$new_url = add_query_arg( 'goto', rawurlencode( $encoded ), home_url( '/' ) );
+					} elseif ( $mode === 'goto_plain' ) {
+						$new_url = add_query_arg( 'goto', rawurlencode( $target_url ), home_url( '/' ) );
+					} else {
+						return $tag;
+					}
+
+					// 替换 href
+					$tag = preg_replace( '/href=[\"\'][^\"\']+[\"\']/', 'href="' . esc_url( $new_url ) . '"', $tag, 1 );
+
+					// 处理 target
+					if ( $newtab ) {
+						if ( preg_match( '/\btarget=[\"\'][^\"\']+[\"\']/', $tag ) ) {
+							$tag = preg_replace( '/\btarget=[\"\'][^\"\']+[\"\']/', 'target="_blank"', $tag, 1 );
+						} else {
+							$tag = rtrim( $tag, '>' ) . ' target="_blank">';
+						}
+					}
+
+					// 处理 rel
+					if ( $nofollow ) {
+						if ( preg_match( '/\brel=[\"\']([^\"\']*)[\"\']/', $tag, $rm ) ) {
+							$rels = array_map( 'trim', explode( ' ', $rm[1] ) );
+							if ( ! in_array( 'nofollow', $rels, true ) ) {
+								$rels[] = 'nofollow';
+							}
+							if ( $newtab && ! in_array( 'noopener', $rels, true ) ) {
+								$rels[] = 'noopener';
+							}
+							$tag = preg_replace( '/\brel=[\"\'][^\"\']*[\"\']/', 'rel="' . esc_attr( implode( ' ', $rels ) ) . '"', $tag, 1 );
+						} else {
+							$rels = array( 'nofollow' );
+							if ( $newtab ) {
+								$rels[] = 'noopener';
+							}
+							$tag = rtrim( $tag, '>' ) . ' rel="' . esc_attr( implode( ' ', $rels ) ) . '">';
+						}
+					}
+
+					return $tag;
+				},
+				$content
+			);
+
+			return $content;
+		}
+
+		/**
+		 * TinyPNG：压缩上传后的图片（JPEG/PNG/WebP）
+		 *
+		 * @param array  $file
+		 * @param string $overrides
+		 * @return array
+		 */
+		public function leseo_tinypng_compress_upload( $file, $overrides = '' ) {
+			$api_key = isset( $this->options['leseo-tinypng-api-key'] ) ? trim( (string) $this->options['leseo-tinypng-api-key'] ) : '';
+			if ( empty( $api_key ) || empty( $file['file'] ) || ! empty( $file['error'] ) ) {
+				return $file;
+			}
+
+			$mime = isset( $file['type'] ) ? $file['type'] : '';
+			$supported = array( 'image/jpeg', 'image/png', 'image/webp' );
+			if ( ! in_array( $mime, $supported, true ) ) {
+				return $file;
+			}
+
+			if ( ! class_exists( '\\lezaiyun\\Leseo\\inc\\TinyPNG\\LeseoTinyPng' ) ) {
+				return $file;
+			}
+
+			$result = \lezaiyun\Leseo\inc\TinyPNG\LeseoTinyPng::compress_file( $file['file'], $mime, $api_key );
+			if ( is_wp_error( $result ) ) {
+				// 不阻断上传，仅记录错误
+				error_log( '[LeSEO TinyPNG] ' . $result->get_error_message() );
+				return $file;
+			}
+
+			if ( file_exists( $file['file'] ) ) {
+				$file['size'] = filesize( $file['file'] );
+			}
 			return $file;
 		}
 
@@ -485,6 +902,152 @@ if (!class_exists('LESEO')) {
 			unregister_widget( 'WP_Widget_Search' );
 		}
 
+		/**
+		 * 标签URL重写初始化
+		 */
+		public function leseo_tag_rewrite_init() {
+			// 添加重写规则，将 /tag/123/ 映射到标签ID 123
+			add_rewrite_rule( '^tag/([0-9]+)/?$', 'index.php?tag_id=$matches[1]', 'top' );
+			// 刷新重写规则仅通过 leseo_flush_rewrite_rules 在保存设置时触发，避免每次 init 执行
+		}
+
+		/**
+		 * 标签重写规则
+		 */
+		public function leseo_tag_rewrite_rules( $rules ) {
+			$new_rules = array();
+			$tags = get_tags( array( 'hide_empty' => false ) );
+			foreach ( $tags as $tag ) {
+				// 为每个标签ID创建重写规则
+				$new_rules['^tag/' . $tag->term_id . '/?$'] = 'index.php?tag=' . $tag->slug;
+			}
+			return $new_rules + $rules;
+		}
+
+		/**
+		 * 添加标签ID查询变量
+		 */
+		public function leseo_tag_query_vars( $query_vars ) {
+			$query_vars[] = 'tag_id';
+			return $query_vars;
+		}
+
+		/**
+		 * 处理标签请求
+		 */
+		public function leseo_tag_request( $query_vars ) {
+			if ( isset( $query_vars['tag_id'] ) && is_numeric( $query_vars['tag_id'] ) ) {
+				$tag = get_term( $query_vars['tag_id'], 'post_tag' );
+				if ( $tag && ! is_wp_error( $tag ) ) {
+					// 将标签ID转换为slug，让WordPress正常处理
+					$query_vars['tag'] = $tag->slug;
+					unset( $query_vars['tag_id'] );
+				}
+			}
+			return $query_vars;
+		}
+
+		/**
+		 * 将标签链接从 /tag/slug/ 改为 /tag/term_id/ 格式
+		 */
+		public function leseo_tag_term_link_id( $termlink, $term, $taxonomy ) {
+			if ( $taxonomy !== 'post_tag' ) {
+				return $termlink;
+			}
+			return home_url( '/tag/' . $term->term_id . '/' );
+		}
+
+		/**
+		 * 刷新重写规则
+		 */
+		public function leseo_flush_rewrite_rules() {
+			// 只在设置页面且选项发生变化时刷新
+			if ( isset( $_POST['action'] ) && strpos( $_POST['action'], 'csf' ) !== false ) {
+				flush_rewrite_rules();
+			}
+		}
+
+		/**
+		 * 自定义分页符重写初始化
+		 * 需设置 $wp_rewrite->pagination_base，否则 WordPress 会在已生成的链接上再次追加 /page/N 导致 /laojiang/2/page/2/ 问题
+		 */
+		public function leseo_pagination_rewrite_init() {
+			$pagination_string = isset( $this->options['leseo-pagination-string'] ) ? 
+				sanitize_title( $this->options['leseo-pagination-string'] ) : 'page';
+
+			global $wp_rewrite;
+			$wp_rewrite->pagination_base = $pagination_string;
+			
+			// 添加通用分页重写规则
+			add_rewrite_rule( '^(.+?)/' . $pagination_string . '/([0-9]+)/?$', 'index.php?pagename=$matches[1]&paged=$matches[2]', 'top' );
+			add_rewrite_rule( '^' . $pagination_string . '/([0-9]+)/?$', 'index.php?paged=$matches[1]', 'top' );
+			// 刷新重写规则仅通过 leseo_flush_rewrite_rules 在保存设置时触发
+		}
+
+		/**
+		 * 自定义分页符查询变量
+		 */
+		public function leseo_custom_pagination_query_vars( $query_vars ) {
+			$pagination_string = isset( $this->options['leseo-pagination-string'] ) ? 
+				sanitize_title( $this->options['leseo-pagination-string'] ) : 'page';
+			$query_vars[] = $pagination_string;
+			return $query_vars;
+		}
+
+		/**
+		 * 自定义分页链接
+		 */
+		public function leseo_custom_pagination_links( $links ) {
+			$pagination_string = isset( $this->options['leseo-pagination-string'] ) ? 
+				sanitize_title( $this->options['leseo-pagination-string'] ) : 'page';
+			
+			if ( is_array( $links ) ) {
+				foreach ( $links as &$link ) {
+					if ( is_string( $link ) ) {
+						$link = str_replace( '/page/', '/' . $pagination_string . '/', $link );
+					}
+				}
+			}
+			return $links;
+		}
+
+		/**
+		 * 自定义分页数字链接
+		 */
+		public function leseo_custom_pagenum_link( $url, $pagenum ) {
+			$pagination_string = isset( $this->options['leseo-pagination-string'] ) ? 
+				sanitize_title( $this->options['leseo-pagination-string'] ) : 'page';
+			
+			$url = str_replace( '/page/', '/' . $pagination_string . '/', $url );
+			return $url;
+		}
+
+		/**
+		 * 自定义下一页链接
+		 */
+		public function leseo_custom_next_posts_link( $attr ) {
+			$pagination_string = isset( $this->options['leseo-pagination-string'] ) ? 
+				sanitize_title( $this->options['leseo-pagination-string'] ) : 'page';
+			
+			if ( isset( $attr['href'] ) ) {
+				$attr['href'] = str_replace( '/page/', '/' . $pagination_string . '/', $attr['href'] );
+			}
+			return $attr;
+		}
+
+		/**
+		 * 自定义上一页链接
+		 */
+		public function leseo_custom_previous_posts_link( $attr ) {
+			$pagination_string = isset( $this->options['leseo-pagination-string'] ) ? 
+				sanitize_title( $this->options['leseo-pagination-string'] ) : 'page';
+			
+			if ( isset( $attr['href'] ) ) {
+				$attr['href'] = str_replace( '/page/', '/' . $pagination_string . '/', $attr['href'] );
+			}
+			return $attr;
+		}
+
 
 		/**
 		 * 下载图片 & 替换正文内容
@@ -506,9 +1069,10 @@ if (!class_exists('LESEO')) {
 			curl_setopt($ch, CURLOPT_MAXREDIRS,20);           // 指定最大重定向次数为20
 			curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);     // 指定连接超时时间为30秒
 
+			$site_host = isset( $_SERVER['HTTP_HOST'] ) ? $_SERVER['HTTP_HOST'] : wp_parse_url( site_url(), PHP_URL_HOST );
 			foreach ($match_images[1] as $src) {
 				// 当非本站图片时
-				if (isset($src) && strpos($src, $_SERVER['HTTP_HOST']) === false) {
+				if (isset($src) && $site_host && strpos($src, $site_host) === false) {
 					curl_setopt($ch, CURLOPT_URL, $src);            // 设置cURL的URL选项为图片$url
 					if ( ! wp_check_filetype( basename($src) )['ext'] ) { // file_info['ext' =>'扩展名','type' =>'类型']
 						// 无扩展名和webp格式的图片无法判断类型
@@ -621,6 +1185,194 @@ if (!class_exists('LESEO')) {
 				global $wpdb;
 				$wpdb->update( $wpdb->posts, array('post_content' => $post->post_content), array('ID' => $post->ID));
 			}
+		}
+
+		/**
+		 * 在经典编辑器“添加媒体”右侧增加图片本地化按钮
+		 */
+		public function leseo_add_localize_images_button() {
+			$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+			if ( ! $screen || empty( $screen->base ) || ! in_array( $screen->base, array( 'post', 'page' ), true ) ) {
+				return;
+			}
+			if ( ! current_user_can( 'edit_posts' ) ) {
+				return;
+			}
+			echo '<button type="button" class="button" id="leseo-localize-images-btn">' . esc_html__( '图片本地化', 'LeSEO' ) . '</button>';
+		}
+
+		/**
+		 * 后台编辑页加载脚本
+		 */
+		public function leseo_enqueue_localize_images_assets( $hook ) {
+			if ( ! in_array( $hook, array( 'post.php', 'post-new.php' ), true ) ) {
+				return;
+			}
+			if ( ! current_user_can( 'edit_posts' ) ) {
+				return;
+			}
+			wp_enqueue_script(
+				'leseo-localize-images',
+				plugins_url( 'static/js/localize-images.js', __FILE__ ),
+				array(),
+				'1.0.0',
+				true
+			);
+			wp_localize_script(
+				'leseo-localize-images',
+				'LESEO_LOCALIZE',
+				array(
+					'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+					'nonce'   => wp_create_nonce( 'leseo_localize_images' ),
+				)
+			);
+		}
+
+		/**
+		 * Gutenberg 区块编辑器加载图片本地化脚本
+		 */
+		public function leseo_enqueue_localize_images_gutenberg() {
+			if ( ! current_user_can( 'edit_posts' ) ) {
+				return;
+			}
+			wp_enqueue_script(
+				'leseo-localize-images-gutenberg',
+				plugins_url( 'static/js/localize-images-gutenberg.js', __FILE__ ),
+				array( 'wp-element', 'wp-i18n', 'wp-data', 'wp-edit-post', 'wp-plugins' ),
+				'1.0.0',
+				true
+			);
+			wp_localize_script(
+				'leseo-localize-images-gutenberg',
+				'LESEO_LOCALIZE',
+				array(
+					'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+					'nonce'   => wp_create_nonce( 'leseo_localize_images' ),
+				)
+			);
+		}
+
+		/**
+		 * AJAX：将编辑器内容中的外链图片本地化并返回替换后的HTML
+		 */
+		public function leseo_ajax_localize_images() {
+			if ( ! current_user_can( 'edit_posts' ) ) {
+				wp_send_json_error( array( 'message' => 'permission_denied' ), 403 );
+			}
+			check_ajax_referer( 'leseo_localize_images', 'nonce' );
+
+			$content = isset( $_POST['content'] ) ? wp_unslash( $_POST['content'] ) : '';
+			$post_id = isset( $_POST['postId'] ) ? absint( $_POST['postId'] ) : 0;
+			if ( empty( $content ) ) {
+				wp_send_json_success( array( 'content' => $content, 'replaced' => 0, 'errors' => array() ) );
+			}
+
+			$result = $this->leseo_localize_images_in_html( $content, $post_id );
+			wp_send_json_success( $result );
+		}
+
+		/**
+		 * 本地化HTML中外链图片并替换URL
+		 *
+		 * @return array { content, replaced, errors }
+		 */
+		private function leseo_localize_images_in_html( $content, $post_id = 0 ) {
+			$errors   = array();
+			$replaced = 0;
+
+			$site_host = wp_parse_url( site_url(), PHP_URL_HOST );
+			$preg = '/<img[^>]+src=[\"\\\']([^\"\\\']+)[\"\\\']/i';
+			$num  = preg_match_all( $preg, $content, $matches );
+			if ( ! $num || empty( $matches[1] ) ) {
+				return array( 'content' => $content, 'replaced' => 0, 'errors' => array() );
+			}
+
+			$srcs = array_values( array_unique( $matches[1] ) );
+			foreach ( $srcs as $src ) {
+				$src = trim( $src );
+				if ( empty( $src ) ) {
+					continue;
+				}
+				// 跳过 data:、blob: 以及本站图片（兼容 PHP 7）
+				if ( strpos( $src, 'data:' ) === 0 || strpos( $src, 'blob:' ) === 0 ) {
+					continue;
+				}
+				$src_host = wp_parse_url( $src, PHP_URL_HOST );
+				if ( $site_host && $src_host && strtolower( $src_host ) === strtolower( $site_host ) ) {
+					continue;
+				}
+
+				$new_url = $this->leseo_sideload_image_to_media( $src, $post_id );
+				if ( is_wp_error( $new_url ) ) {
+					$errors[] = $new_url->get_error_message();
+					continue;
+				}
+				if ( $new_url ) {
+					$content = str_replace( $src, $new_url, $content );
+					$replaced++;
+				}
+			}
+
+			return array(
+				'content'  => $content,
+				'replaced' => $replaced,
+				'errors'   => $errors,
+			);
+		}
+
+		/**
+		 * 下载远程图片到媒体库，返回新URL
+		 */
+		private function leseo_sideload_image_to_media( $url, $post_id = 0 ) {
+			if ( ! function_exists( 'download_url' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+			}
+			if ( ! function_exists( 'wp_handle_sideload' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+			}
+			if ( ! function_exists( 'wp_generate_attachment_metadata' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/image.php';
+			}
+
+			$tmp = download_url( $url, 30 );
+			if ( is_wp_error( $tmp ) ) {
+				return $tmp;
+			}
+
+			$path = wp_parse_url( $url, PHP_URL_PATH );
+			$name = $path ? basename( $path ) : '';
+			if ( empty( $name ) || ! wp_check_filetype( $name )['ext'] ) {
+				$name = 'image-' . gmdate( 'YmdHis' ) . '-' . wp_generate_password( 6, false ) . '.jpg';
+			}
+
+			$file_array = array(
+				'name'     => $name,
+				'tmp_name' => $tmp,
+			);
+
+			$overrides = array( 'test_form' => false );
+			$sideload  = wp_handle_sideload( $file_array, $overrides );
+			if ( ! empty( $sideload['error'] ) ) {
+				@unlink( $tmp );
+				return new \WP_Error( 'leseo_sideload_failed', $sideload['error'] );
+			}
+
+			$attachment = array(
+				'post_mime_type' => $sideload['type'],
+				'post_title'     => preg_replace( '/\.[^.]+$/', '', basename( $sideload['file'] ) ),
+				'post_content'   => '',
+				'post_status'    => 'inherit',
+			);
+
+			$attach_id = wp_insert_attachment( $attachment, $sideload['file'], $post_id );
+			if ( is_wp_error( $attach_id ) ) {
+				return $attach_id;
+			}
+
+			$attach_data = wp_generate_attachment_metadata( $attach_id, $sideload['file'] );
+			wp_update_attachment_metadata( $attach_id, $attach_data );
+
+			return wp_get_attachment_url( $attach_id );
 		}
 
 
@@ -746,6 +1498,104 @@ if (!class_exists('LESEO')) {
 			return $content;
 		}
 
+		/**
+		 * 添加手动推送、百度收录查询子菜单
+		 */
+		public function leseo_add_submit_submenus() {
+			add_submenu_page(
+				'lezaiyun-leseo-options',
+				'手动推送',
+				'手动推送',
+				'manage_options',
+				'leseo-manually-submit',
+				array( $this, 'leseo_render_manually_submit_page' )
+			);
+			add_submenu_page(
+				'lezaiyun-leseo-options',
+				'百度收录查询',
+				'百度收录查询',
+				'manage_options',
+				'leseo-check-baidu',
+				array( $this, 'leseo_render_check_baidu_page' )
+			);
+		}
+
+		/**
+		 * 手动推送页面：批量提交URL到百度
+		 */
+		public function leseo_render_manually_submit_page() {
+			if ( ! current_user_can( 'manage_options' ) ) {
+				wp_die( esc_html__( '您没有权限访问此页面', 'LeSEO' ) );
+			}
+			$message = '';
+			if ( isset( $_POST['leseo_manually_submit_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['leseo_manually_submit_nonce'] ) ), 'leseo_manually_submit' ) ) {
+				$urls_text = isset( $_POST['leseo_submit_urls'] ) ? sanitize_textarea_field( wp_unslash( $_POST['leseo_submit_urls'] ) ) : '';
+				$type      = isset( $_POST['leseo_submit_type'] ) && $_POST['leseo_submit_type'] === 'daily' ? 'daily' : 'normal';
+				$urls      = array_filter( array_map( 'trim', explode( "\n", $urls_text ) ) );
+				$urls      = array_filter( $urls, 'esc_url_raw' );
+				if ( ! empty( $urls ) && ! empty( $this->options['leseo-submit-bdtoken'] ) ) {
+					$baidu = new BaiduSubmit\LeoBaiduSubmitter( array( 'token' => $this->options['leseo-submit-bdtoken'] ), site_url() );
+					$resp  = $baidu->request( $type, array_slice( $urls, 0, 2000 ) );
+					if ( is_wp_error( $resp ) ) {
+						$message = '<div class="notice notice-error"><p>' . esc_html( $resp->get_error_message() ) . '</p></div>';
+					} elseif ( $resp->error !== null ) {
+						$message = '<div class="notice notice-warning"><p>' . esc_html( $resp->message ?? '推送失败' ) . '</p></div>';
+					} else {
+						$success = $type === 'daily' ? ( $resp->success_daily ?? 0 ) : ( $resp->success ?? 0 );
+						$message = '<div class="notice notice-success"><p>' . sprintf( esc_html__( '成功推送 %d 条链接', 'LeSEO' ), (int) $success ) . '</p></div>';
+					}
+				} else {
+					$message = '<div class="notice notice-warning"><p>' . esc_html__( '请输入有效URL或先在设置中配置百度推送TOKEN', 'LeSEO' ) . '</p></div>';
+				}
+			}
+			?>
+			<div class="wrap">
+				<h1><?php esc_html_e( '手动推送', 'LeSEO' ); ?></h1>
+				<?php echo $message; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+				<form method="post" action="">
+					<?php wp_nonce_field( 'leseo_manually_submit', 'leseo_manually_submit_nonce' ); ?>
+					<table class="form-table">
+						<tr>
+							<th><label for="leseo_submit_urls"><?php esc_html_e( 'URL列表（每行一个，最多2000条）', 'LeSEO' ); ?></label></th>
+							<td>
+								<textarea name="leseo_submit_urls" id="leseo_submit_urls" rows="12" class="large-text" placeholder="https://example.com/page1&#10;https://example.com/page2"></textarea>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="leseo_submit_type"><?php esc_html_e( '推送类型', 'LeSEO' ); ?></label></th>
+							<td>
+								<select name="leseo_submit_type" id="leseo_submit_type">
+									<option value="normal"><?php esc_html_e( '普通推送', 'LeSEO' ); ?></option>
+									<option value="daily"><?php esc_html_e( '快速收录', 'LeSEO' ); ?></option>
+								</select>
+							</td>
+						</tr>
+					</table>
+					<?php submit_button( __( '提交推送', 'LeSEO' ) ); ?>
+				</form>
+			</div>
+			<?php
+		}
+
+		/**
+		 * 百度收录查询页面
+		 */
+		public function leseo_render_check_baidu_page() {
+			if ( ! current_user_can( 'manage_options' ) ) {
+				wp_die( esc_html__( '您没有权限访问此页面', 'LeSEO' ) );
+			}
+			$site_url = preg_replace( '#^https?://#', '', untrailingslashit( site_url() ) );
+			$baidu_check_url = 'https://www.baidu.com/s?wd=site:' . esc_attr( $site_url );
+			?>
+			<div class="wrap">
+				<h1><?php esc_html_e( '百度收录查询', 'LeSEO' ); ?></h1>
+				<p><?php esc_html_e( '在百度搜索中查看本站收录情况：', 'LeSEO' ); ?></p>
+				<p><a href="<?php echo esc_url( $baidu_check_url ); ?>" target="_blank" rel="noopener" class="button button-primary"><?php esc_html_e( '在百度查看 site: 收录结果', 'LeSEO' ); ?></a></p>
+				<p class="description"><?php esc_html_e( '点击后将跳转到百度搜索，显示您站点的收录页面数量。建议定期查看以了解收录进度。', 'LeSEO' ); ?></p>
+			</div>
+			<?php
+		}
+
 		public function leseo_add_baidu_submitter_meta_box() {
 			# 添加meta box模块
 			$types = isset($this->options['leseo-resource-type']) && $this->options['leseo-resource-type']
@@ -776,7 +1626,7 @@ if (!class_exists('LESEO')) {
 			// 检测是否存在已推送标签，若已推送，则更改展示。
 			$meta_value = get_post_meta( $post->ID, $this->leseo_submit_meta_key, true );  # (optional) 如果设置为 true，返回单个值。
 
-			$cache = new inc\cache\LeCache('remain');
+			$cache = new inc\Cache\LeCache('remain');
 			$_remain = $cache->get('remain');
 			$_remain_daily = $cache->get('remain_daily');
 			$remain = ($_remain and $_remain[1] > current_time('timestamp')) ? $_remain[0] : False;
@@ -854,9 +1704,7 @@ if (!class_exists('LESEO')) {
 								// 更新数据，第四个参数pre_value，用于指定之前的值替换，暂时先不添加
 								update_post_meta( $post_id, $this->leseo_submit_meta_key, $meta_value );
 
-								$data = $meta_value == 'daily' ? $resp->remain_daily : $resp->remain;
-								$cache = new inc\Cache\LeCache('remain');
-								$cache->set($meta_value, $data);
+								// 配额已由 LeseoBaiduResponse 正确写入 remain/remain_daily，此处无需重复设置
 							}  else {
 								update_post_meta( $post_id, $this->leseo_submit_meta_key, $resp->message );
 							}
@@ -1159,13 +2007,18 @@ if (!class_exists('LESEO')) {
          */
         private function key_handler($key, $upload_url_path){
             # 参数2 为了减少option的获取次数
-            $url_parse = wp_parse_url($upload_url_path);
-            # 约定url不要以/结尾，减少判断条件
-            if (array_key_exists('path', $url_parse)) {
-                if ( substr($key, 0, 1) == '/' ) {
-                    $key = $url_parse['path'] . $key;
-                } else {
-                    $key = $url_parse['path'] . '/' . $key;
+            $url_parse = is_string($upload_url_path) && $upload_url_path !== '' ? wp_parse_url($upload_url_path) : false;
+            # 约定url不要以/结尾，减少判断条件；空或无效时仅用 key 本身（避免 parse_url('') 导致警告）
+            if ( is_array($url_parse) && array_key_exists('path', $url_parse) && $url_parse['path'] !== '' ) {
+                $path = trim( $url_parse['path'], '/' );
+                $bucket = isset( $this->options['leseo-s3-bucket'] ) ? trim( (string) $this->options['leseo-s3-bucket'] ) : '';
+                // path-style 时 upload_url_path 为 endpoint/bucket，path 即 bucket，不应作为对象 key 前缀（请求路径已含 bucket）
+                if ( $path !== '' && $path !== $bucket ) {
+                    if ( substr($key, 0, 1) == '/' ) {
+                        $key = $url_parse['path'] . $key;
+                    } else {
+                        $key = $url_parse['path'] . '/' . $key;
+                    }
                 }
             }
             # $url_parse['path'] 以/开头，在七牛环境下不能以/开头，所以需要处理掉
@@ -1288,17 +2141,35 @@ if (!class_exists('LESEO')) {
         }
 
 
-        // S3功能注入
+        // S3功能注入（保存时同步 upload_url_path，供 WP 与 key 前缀使用）
         public function leseo_s3_switch_csf_filter( $params ) {
             if ( ! empty($params['leseo-s3-switch']) ) {
-                // 如果启用，并且leseo-s3-domain选项不为空
-                if ( !empty($params['leseo-s3-domain']) ) {
-                    $params['lseso-s3-backup_url_path'] = $this->options['lseso-s3-backup_url_path'] ?? get_option('upload_url_path');
-                    update_option('upload_url_path', $params['leseo-s3-domain']);
+                $backup = $this->options['leseo-s3-backup_url_path'] ?? $this->options['lseso-s3-backup_url_path'] ?? get_option('upload_url_path');
+                $params['leseo-s3-backup_url_path'] = $backup;
+
+                if ( ! empty( trim( (string) ( $params['leseo-s3-domain'] ?? '' ) ) ) ) {
+                    update_option('upload_url_path', trim( $params['leseo-s3-domain'] ));
+                } else {
+                    // 1.2.6 自定义域名可为空：为空时用虚拟主机风格构造默认地址（各 S3 兼容厂商均支持）
+                    $endpoint = isset($params['leseo-s3-endpoint']) ? trim( (string) $params['leseo-s3-endpoint'] ) : '';
+                    $bucket   = isset($params['leseo-s3-bucket']) ? trim( (string) $params['leseo-s3-bucket'] ) : '';
+                    if ( $endpoint !== '' && $bucket !== '' ) {
+                        $parsed = wp_parse_url( $endpoint );
+                        if ( empty( $parsed['scheme'] ) ) {
+                            $endpoint = 'https://' . ltrim( $endpoint, '/' );
+                            $parsed  = wp_parse_url( $endpoint );
+                        }
+                        if ( ! empty( $parsed['host'] ) ) {
+                            $scheme      = ( isset( $parsed['scheme'] ) && $parsed['scheme'] ) ? $parsed['scheme'] : 'https';
+                            $default_url = $scheme . '://' . $bucket . '.' . $parsed['host'];
+                            update_option('upload_url_path', $default_url);
+                        }
+                    }
                 }
             } else {
-                if ( isset($this->options['lseso-s3-backup_url_path']) ) {
-                    update_option('upload_url_path', $this->options['lseso-s3-backup_url_path']);
+                $backup = $this->options['leseo-s3-backup_url_path'] ?? $this->options['lseso-s3-backup_url_path'] ?? null;
+                if ( $backup ) {
+                    update_option('upload_url_path', $backup);
                 }
             }
             return $params;

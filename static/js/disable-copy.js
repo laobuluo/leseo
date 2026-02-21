@@ -19,4 +19,10 @@ if (window.sidebar) {
     };
 }
 
-if (parent.frames.length > 0) top.location.replace(document.location);
+try {
+    if (typeof parent !== 'undefined' && parent !== self && parent.frames && parent.frames.length > 0) {
+        top.location.replace(document.location);
+    }
+} catch (e) {
+    /* 跨域iframe无法访问parent，忽略 */
+}

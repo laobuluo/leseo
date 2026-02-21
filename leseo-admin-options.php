@@ -250,6 +250,66 @@ if ( class_exists( 'CSF' ) ) {
 				'text_width' => 140,
 
 			),
+			array(
+				'id'         => 'leseo-rest-api',
+				'type'       => 'switcher',
+				'title'      => '屏蔽REST API',
+				'label'      => '完全屏蔽WordPress REST API访问，提高安全性',
+				'text_off'   => '点击关闭REST API',
+				'text_on'    => '点击开启REST API',
+				'text_width' => 140,
+
+			),
+			array(
+				'id'         => 'leseo-trackback',
+				'type'       => 'switcher',
+				'title'      => '屏蔽Trackbacks/Pingback',
+				'label'      => '禁用Trackbacks和Pingback功能，减少垃圾请求',
+				'text_off'   => '点击关闭Trackbacks',
+				'text_on'    => '点击开启Trackbacks',
+				'text_width' => 140,
+
+			),
+			array(
+				'id'         => 'leseo-admin-bar',
+				'type'       => 'switcher',
+				'title'      => '前台顶部管理菜单',
+				'label'      => '控制是否在前台显示顶部管理工具栏',
+				'text_off'   => '隐藏管理菜单',
+				'text_on'    => '显示管理菜单',
+				'text_width' => 140,
+
+			),
+			array(
+				'id'         => 'leseo-dns-prefetch',
+				'type'       => 'switcher',
+				'title'      => '移除dns-prefetch',
+				'label'      => '移除WordPress自动添加的DNS预取链接',
+				'text_off'   => '点击关闭dns-prefetch',
+				'text_on'    => '点击开启dns-prefetch',
+				'text_width' => 140,
+
+			),
+			array(
+				'id'         => 'leseo-dashicons',
+				'type'       => 'switcher',
+				'title'      => '移除Dashicons',
+				'label'      => '前台移除Dashicons字体文件，减少加载资源',
+				'text_off'   => '点击关闭Dashicons',
+				'text_on'    => '点击开启Dashicons',
+				'text_width' => 140,
+
+			),
+			array(
+				'id'         => 'leseo-rsd',
+				'type'       => 'switcher',
+				'title'      => '移除RSD',
+				'label'      => '移除RSD (Really Simple Discovery) 链接',
+				'text_off'   => '点击关闭RSD',
+				'text_on'    => '点击开启RSD',
+				'text_width' => 140,
+
+			),
 
 
 		)
@@ -421,6 +481,52 @@ if ( class_exists( 'CSF' ) ) {
 				'text_width' => 140,
 
 			),
+			array(
+				'type'    => 'heading',
+				'content' => '分页设置',
+			),
+			array(
+				'id'         => 'leseo-custom-pagination',
+				'type'       => 'switcher',
+				'title'      => '自定义分页符',
+				'label'      => '开启后可以自定义分页符，替代默认的page参数',
+				'text_off'   => '点击开启自定义分页',
+				'text_on'    => '点击关闭自定义分页',
+				'text_width' => 140,
+
+			),
+			array(
+				'id'         => 'leseo-pagination-string',
+				'type'       => 'text',
+				'title'      => '自定义分页符',
+				'default'    => 'page',
+				'desc'       => '设置自定义的分页符，例如：page、p、pagination等',
+				'dependency' => array( 'leseo-custom-pagination', '==', 'true' ),
+			),
+
+			array(
+				'type'    => 'heading',
+				'content' => '图片压缩（TinyPNG）',
+			),
+			array(
+				'id'         => 'leseo-tinypng-switch',
+				'type'       => 'switcher',
+				'title'      => '开启TinyPNG图片压缩',
+				'label'      => '上传图片后自动使用TinyPNG压缩（每月免费500张）。需要配置 TinyPNG API Key。',
+				'text_off'   => '点击开启',
+				'text_on'    => '点击关闭',
+				'text_width' => 140,
+			),
+			array(
+				'id'         => 'leseo-tinypng-api-key',
+				'type'       => 'text',
+				'title'      => 'TinyPNG API Key',
+				'desc'       => '在 TinyPNG 官网申请 API Key（每月免费500张压缩）。',
+				'attributes' => array(
+					'style' => 'width: 60%;',
+				),
+				'dependency' => array( 'leseo-tinypng-switch', '==', 'true' ),
+			),
 
 		)
 	) );
@@ -495,6 +601,91 @@ if ( class_exists( 'CSF' ) ) {
 				'text_on'    => '点击关闭自动内链',
 				'text_width' => 140,
 
+			),
+			array(
+				'id'         => 'leseo-tag-rewrite',
+				'type'       => 'switcher',
+				'title'      => '标签URL更改',
+				'label'      => '开启后标签URL改为 /tag/%tag_id% 格式，提高SEO效果',
+				'text_off'   => '点击开启标签ID模式',
+				'text_on'    => '点击关闭标签ID模式',
+				'text_width' => 140,
+
+			),
+			array(
+				'id'         => 'leseo-webp-convert',
+				'type'       => 'switcher',
+				'title'      => '图片转换WebP格式',
+				'label'      => '上传的图片自动转换为WebP格式，减小体积、加快加载',
+				'text_off'   => '点击开启',
+				'text_on'    => '点击关闭',
+				'text_width' => 140,
+
+			),
+
+			array(
+				'type'    => 'heading',
+				'content' => '站外链接优化',
+			),
+			array(
+				'id'         => 'leseo-extlink-enable',
+				'type'       => 'switcher',
+				'title'      => '开启站外链接优化',
+				'label'      => '统一处理正文中的站外链接，可使用 ?goto= 中转模式并支持 Base64 加密。',
+				'text_off'   => '点击开启',
+				'text_on'    => '点击关闭',
+				'text_width' => 140,
+			),
+			array(
+				'id'         => 'leseo-extlink-mode',
+				'type'       => 'select',
+				'title'      => '站外链接模式',
+				'options'    => array(
+					'normal'      => '正常链接（不处理，默认）',
+					'goto_base64' => '中转 + Base64：?goto=BASE64(url)',
+					'goto_plain'  => '中转（明文）：?goto=实际URL',
+				),
+				'default'    => 'normal',
+				'dependency' => array( 'leseo-extlink-enable', '==', 'true' ),
+			),
+			array(
+				'id'         => 'leseo-extlink-newtab',
+				'type'       => 'checkbox',
+				'title'      => '新窗口打开站外链接',
+				'label'      => '为站外链接添加 target=\"_blank\"（推荐）',
+				'dependency' => array( 'leseo-extlink-enable', '==', 'true' ),
+			),
+			array(
+				'id'         => 'leseo-extlink-nofollow',
+				'type'       => 'checkbox',
+				'title'      => '添加 rel=\"nofollow\"',
+				'label'      => '为站外链接添加 rel=\"nofollow\"，可提升权重控制',
+				'dependency' => array( 'leseo-extlink-enable', '==', 'true' ),
+			),
+			array(
+				'id'         => 'leseo-extlink-whitelist',
+				'type'       => 'textarea',
+				'title'      => '白名单域名',
+				'desc'       => '每行一个域名（不含协议），如：example.com。白名单内的链接保持为正常内链模式，不走 ?goto= 中转。',
+				'dependency' => array( 'leseo-extlink-enable', '==', 'true' ),
+			),
+			array(
+				'id'         => 'leseo-extlink-transition',
+				'type'       => 'checkbox',
+				'title'      => '使用中间过渡页面',
+				'label'      => '站外链接跳转前先展示一页提示页面。',
+				'dependency' => array(
+					'leseo-extlink-enable', '==', 'true',
+				),
+			),
+			array(
+				'id'         => 'leseo-extlink-transition-auto',
+				'type'       => 'checkbox',
+				'title'      => '过渡页自动跳转',
+				'label'      => '勾选后在显示过渡页的同时 N 秒后自动跳转；不勾选则必须手动点击按钮。',
+				'dependency' => array(
+					'leseo-extlink-enable', '==', 'true',
+				),
 			),
 
 		)
@@ -747,12 +938,12 @@ if ( class_exists( 'CSF' ) ) {
       			'id'       => 'leseo-code-cssjs',
       			'type'     => 'code_editor',
       			'title'    => '自定义CSS样式',
-     			'subtitle' => '直接写样式代码，不用添加标签',
+     			'subtitle' => '直接写样式代码，无需添加 style 标签',
    			 'settings' => array(
         'theme'  => 'mbo',
         'mode'   => 'css',
       ),
-      'default' =>'无需加入<style\>标签',
+    'help' => '直接书写CSS规则，系统会自动包裹 &lt;style&gt; 标签输出',
     ),
 
 		)
@@ -854,6 +1045,16 @@ CSF::createSection( $prefix, array(
             'after' => '<p>对应对象存储服务商的AccessKey/SecretKey密钥信息。</p>',
             'dependency' => array( 'leseo-s3-switch', '==', 'true' ),
             'validate' => 'leseo_validate_s3_required',
+        ),
+        array(
+            'id'         => 'leseo-s3-skip-ssl',
+            'type'       => 'switcher',
+            'title'      => '跳过 SSL 证书验证',
+            'label'      => '遇到 cURL 60（证书链/自签名）报错时可开启，仅建议在代理或内网环境使用',
+            'text_on'    => '开启',
+            'text_off'   => '关闭',
+            'text_width' => 60,
+            'dependency' => array( 'leseo-s3-switch', '==', 'true' ),
         ),
     )
 ));
